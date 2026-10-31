@@ -8,7 +8,7 @@ const CLOB_API_URL = process.env.POLYMARKET_HOST || 'https://clob.polymarket.com
 const PRIVATE_KEY = process.env.PRIVATE_KEY || '';
 const CHAIN_ID = Number(process.env.CHAIN_ID || 137);
 
-// Inicijalizacija wallet-a
+// Inicijalizacija wallet-a sa provider-om
 const provider = new ethers.JsonRpcProvider('https://polygon-rpc.com');
 const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
@@ -16,7 +16,7 @@ export async function executeCopyTrade(tradeData: any) {
     try {
         console.log(`[Trader] Priprema live kopiranja trejda za token: ${tradeData.asset}`);
 
-        // Koristimo 'as any' da zaobiđemo restriktivne TypeScript tipove u clob-client paketu
+        // Koristimo wallet kastovan u 'as any' da zadovoljimo stroge tipove clob-client biblioteke
         const clobClient = new ClobClient(
             CLOB_API_URL,
             CHAIN_ID,
@@ -43,6 +43,7 @@ export async function executeCopyTrade(tradeData: any) {
 
         console.log(`[Trader] Uspešno izvršen live trejd! Odgovor servera:`, order);
     } catch (error: any) {
-        console.error('[Trader Greška] Neuspelo izvršenje live naloga:', error?.message || error);
+        const errorMsg = error?.response?.data || error?.message || String(error);
+        console.error('[Trader Greška] Neuspelo izvršenje live naloga:', errorMsg);
     }
 }
