@@ -1,3 +1,7 @@
+import 'global-agent/bootstrap';
+// Postavljamo proxy globalno za sve mrežne zahteve
+process.env.GLOBAL_AGENT_HTTP_PROXY = process.env.PROXY_URL || 'http://161.97.104.144:80';
+
 import { createWalletClient, http } from 'viem';
 import { polygon } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -10,7 +14,6 @@ const CLOB_API_URL = process.env.POLYMARKET_HOST || 'https://clob.polymarket.com
 const PRIVATE_KEY = process.env.PRIVATE_KEY as `0x${string}` || '';
 const CHAIN_ID = Number(process.env.CHAIN_ID || 137);
 
-// Inicijalizacija account-a i wallet client-a preko viem-a (što clob-client direktno očekuje)
 const account = privateKeyToAccount(PRIVATE_KEY);
 const signer = createWalletClient({
     account,
@@ -22,29 +25,38 @@ export async function executeCopyTrade(tradeData: any) {
     try {
         console.log(`[Trader] Priprema live kopiranja trejda za token: ${tradeData.asset}`);
 
-        // 1. Kreiranje API kredencijala preko zvanične metode
-        const creds = await new ClobClient(CLOB_API_URL, CHAIN_ID, signer as any).createOrDeriveApiKey();
+        const creds = await new ClobClient(
+            CLOB_API_URL,
+            CHAIN_ID,
+            signer as any
+        ).createOrDeriveApiKey();
 
-        const signatureType = 0; // 0 za običan privatni ključ / EOA
+        const signatureType = 0;
         const funderAddress = account.address;
 
-        // 2. Inicijalizacija CLOB klijenta sa viem signer-om
+        // Čist konstruktor sa ispravnim tipovima
         const clobClient = new ClobClient(
             CLOB_API_URL,
             CHAIN_ID,
             signer as any,
             creds,
             signatureType,
-            funderAddress
+            funderAddress,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            true // throwOnError: true da hvatamo greške ako ih bude
         );
 
         const amountUsdc = Number(process.env.COPY_AMOUNT_USDC || 10);
         const price = Number(tradeData.price);
         const size = amountUsdc / price;
 
-        console.log(`[Trader] Šaljem pravi nalog na Polymarket... Token: ${tradeData.asset}, Cena: ${price}, Količina: ${size}, Strana: ${tradeData.side}`);
+        console.log(`[Trader] Šaljem pravi nalog na Polymarket preko proxy-ja... Token: ${tradeData.asset}, Cena: ${price}, Količina: ${size}, Strana: ${tradeData.side}`);
 
-        // 3. Slanje naloga
         const order = await clobClient.createAndPostOrder(
             {
                 tokenID: tradeData.asset,
