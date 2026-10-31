@@ -1,0 +1,11 @@
+# Ignoriši env fajlove sa privatnim ključevima
+.env
+
+# Ignoriši Node.js zavisnosti i build foldere
+node_modules/
+dist/
+build/
+
+# Ignoriši log fajlove i sistemske fajlove
+*.log
+.DS_Store
