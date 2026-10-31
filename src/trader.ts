@@ -1,11 +1,8 @@
-import 'global-agent/bootstrap';
-// Postavljamo proxy globalno za sve mrežne zahteve
-process.env.GLOBAL_AGENT_HTTP_PROXY = process.env.PROXY_URL || 'http://161.97.104.144:80';
-
 import { createWalletClient, http } from 'viem';
 import { polygon } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import { ClobClient, Side } from '@polymarket/clob-client';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -14,11 +11,20 @@ const CLOB_API_URL = process.env.POLYMARKET_HOST || 'https://clob.polymarket.com
 const PRIVATE_KEY = process.env.PRIVATE_KEY as `0x${string}` || '';
 const CHAIN_ID = Number(process.env.CHAIN_ID || 137);
 
+// Kreiramo proxy agent direktno
+const proxyUrl = process.env.PROXY_URL || 'http://161.97.104.144:80'; 
+const agent = new HttpsProxyAgent(proxyUrl);
+
 const account = privateKeyToAccount(PRIVATE_KEY);
+
+// Prosljeđujemo proxy agent u viem transport fetchOptions
 const signer = createWalletClient({
     account,
     chain: polygon,
-    transport: http('https://polygon-rpc.com'),
+    transport: http('https://polygon-rpc.com', {
+        // @ts-ignore
+        fetchOptions: { agent }
+    }),
 });
 
 export async function executeCopyTrade(tradeData: any) {
@@ -34,7 +40,6 @@ export async function executeCopyTrade(tradeData: any) {
         const signatureType = 0;
         const funderAddress = account.address;
 
-        // Čist konstruktor sa ispravnim tipovima
         const clobClient = new ClobClient(
             CLOB_API_URL,
             CHAIN_ID,
@@ -48,7 +53,7 @@ export async function executeCopyTrade(tradeData: any) {
             undefined,
             undefined,
             undefined,
-            true // throwOnError: true da hvatamo greške ako ih bude
+            true
         );
 
         const amountUsdc = Number(process.env.COPY_AMOUNT_USDC || 10);
