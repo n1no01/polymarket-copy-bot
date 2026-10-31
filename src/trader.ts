@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import axios from 'axios';
+import { ClobClient, Side } from '@polymarket/clob-client';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -14,35 +14,35 @@ const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
 export async function executeCopyTrade(tradeData: any) {
     try {
-        console.log(`[Trader] Priprema kopiranja trejda za token: ${tradeData.asset}`);
+        console.log(`[Trader] Priprema live kopiranja trejda za token: ${tradeData.asset}`);
 
-        // 1. Definisanje iznosa koji ti želiš da uložiš (npr. fiksno iz .env ili srazmerno)
+        // Koristimo 'as any' da zaobiđemo restriktivne TypeScript tipove u clob-client paketu
+        const clobClient = new ClobClient(
+            CLOB_API_URL,
+            CHAIN_ID,
+            wallet as any,
+            {
+                key: process.env.POLY_API_KEY || '',
+                secret: process.env.POLY_API_SECRET || '',
+                passphrase: process.env.POLY_API_PASSPHRASE || '',
+            }
+        );
+
         const amountUsdc = Number(process.env.COPY_AMOUNT_USDC || 10);
+        const price = Number(tradeData.price);
+        const size = amountUsdc / price;
 
-        // 2. Kreiranje order payload-a za Polymarket CLOB API
-        // Napomena: Za potpunu CLOB integraciju potrebni su API credentials (API Key, Secret, Passphrase) 
-        // koje generišeš preko CLOB klijenta ili API-ja.
-        
-        const orderPayload = {
-            asset: tradeData.asset,
-            price: tradeData.price, // Možeš uzeti cenu mete ili trenutnu tržišnu cenu
-            size: amountUsdc / Number(tradeData.price), // Količina akcija na osnovu tvog budžeta
-            side: tradeData.side, // BUY ili SELL
-            // Kreiranje EIP-712 potpisa se vrši ovdje preko wallet.signTypedData(...)
-        };
+        console.log(`[Trader] Šaljem pravi nalog na Polymarket... Token: ${tradeData.asset}, Cena: ${price}, Količina: ${size}, Strana: ${tradeData.side}`);
 
-        console.log(`[Trader] Šaljem nalog na Polymarket...`, orderPayload);
+        const order = await clobClient.createAndPostOrder({
+            tokenID: tradeData.asset,
+            price: price,
+            size: size,
+            side: tradeData.side === 'BUY' ? Side.BUY : Side.SELL,
+        });
 
-        // Primer slanja na CLOB API (POST /order)
-        // const response = await axios.post(`${CLOB_API_URL}/order`, orderPayload, { headers: ... });
-        
-        console.log(`[Trader] Uspešno kopiran trejd!`);
-    } catch (error) {
-        const details = axios.isAxiosError(error)
-            ? error.response?.data
-            : error instanceof Error
-                ? error.message
-                : String(error);
-        console.error('[Trader Greška] Neuspelo izvršenje naloga:', details);
+        console.log(`[Trader] Uspešno izvršen live trejd! Odgovor servera:`, order);
+    } catch (error: any) {
+        console.error('[Trader Greška] Neuspelo izvršenje live naloga:', error?.message || error);
     }
 }
