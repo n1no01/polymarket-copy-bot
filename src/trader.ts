@@ -14,7 +14,7 @@ const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
 export async function executeCopyTrade(tradeData: any) {
     try {
-        console.log(`[Trader] Priprema kopiranja trejda za token: ${tradeData.asset_id}`);
+        console.log(`[Trader] Priprema kopiranja trejda za token: ${tradeData.asset}`);
 
         // 1. Definisanje iznosa koji ti želiš da uložiš (npr. fiksno iz .env ili srazmerno)
         const amountUsdc = Number(process.env.COPY_AMOUNT_USDC || 10);
@@ -24,7 +24,7 @@ export async function executeCopyTrade(tradeData: any) {
         // koje generišeš preko CLOB klijenta ili API-ja.
         
         const orderPayload = {
-            tokenID: tradeData.asset_id,
+            asset: tradeData.asset,
             price: tradeData.price, // Možeš uzeti cenu mete ili trenutnu tržišnu cenu
             size: amountUsdc / Number(tradeData.price), // Količina akcija na osnovu tvog budžeta
             side: tradeData.side, // BUY ili SELL
