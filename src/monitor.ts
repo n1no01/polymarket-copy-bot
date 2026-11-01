@@ -3,48 +3,117 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const DATA_API_URL = 'https://data-api.polymarket.com';
-const TARGET_WALLET = process.env.TARGET_WALLET_TO_COPY || '';
+const DATA_API_URL = 'https://data-api.polymarket.com/v2/trades';
+const TARGET_WALLET = process.env.TARGET_WALLET_TO_COPY?.trim();
 
-// Čuvamo ID poslednje obrađene transakcije da se ne bi ponavljali
-let lastProcessedTxHash: string | null = null;
+const PAGE_LIMIT = 100;
+
+// Tradeovi koje smo već registrovali
+const seenTrades = new Set<string>();
+
+let initialized = false;
+
+function getTradeKey(trade: any): string {
+    return trade.id ||
+        trade.trade_id ||
+        [
+            trade.transaction_hash,
+            trade.timestamp,
+            trade.token_id,
+            trade.side,
+            trade.price,
+            trade.size
+        ].join(':');
+}
+
+async function fetchTrades(cursor: string | null = null) {
+    // Definišemo tip za parametre da TypeScript zna za cursor
+    const params: { user: string | undefined; limit: number; cursor?: string } = {
+        user: TARGET_WALLET,
+        limit: PAGE_LIMIT
+    };
+
+    if (cursor) {
+        params.cursor = cursor;
+    }
+
+    const response = await axios.get(DATA_API_URL, {
+        params,
+        timeout: 10000
+    });
+
+    return {
+        trades: response.data.data || [],
+        nextCursor: response.data.pagination?.next_cursor || null
+    };
+}
 
 export async function checkTargetActivity() {
+    if (!TARGET_WALLET) {
+        throw new Error('TARGET_WALLET_TO_COPY nije definisan u .env fajlu.');
+    }
+
     try {
-        // Pozivamo Data API v2 za listu skorašnjih trejdova ili aktivnosti ciljnog korisnika
-        const response = await axios.get(`${DATA_API_URL}/trades`, {
-            params: {
-                maker_address: TARGET_WALLET, // ili user_address zavisno od endpoint specifikacije
-                limit: 5
+        const newTrades: any[] = [];
+        let cursor: string | null = null;
+        let firstPage = true;
+        let reachedKnownTrade = false;
+
+        do {
+            const result = await fetchTrades(cursor);
+
+            if (firstPage && !initialized) {
+                for (const trade of result.trades) {
+                    seenTrades.add(getTradeKey(trade));
+                }
+
+                initialized = true;
+
+                console.log(
+                    `[Monitor] Wallet inicijalizovan. ` +
+                    `Registrovano ${seenTrades.size} postojećih tradeova.`
+                );
+
+                return [];
             }
-        });
 
-        const trades = response.data;
-        if (!trades || trades.length === 0) return null;
+            for (const trade of result.trades) {
+                const key = getTradeKey(trade);
 
-        // Uzimamo najsvežiji trejd
-        const latestTrade = trades[0];
-        const txHash = latestTrade.transactionHash || latestTrade.id;
+                if (seenTrades.has(key)) {
+                    reachedKnownTrade = true;
+                    continue;
+                }
 
-        if (lastProcessedTxHash === null) {
-            // Prvo pokretanje: samo memorišemo poslednji trejd da ne kopiramo stare akcije od juče
-            lastProcessedTxHash = txHash;
-            console.log(`[Monitor] Inicijalizovan praćeni wallet. Poslednji tx: ${txHash}`);
-            return null;
-        }
+                seenTrades.add(key);
+                newTrades.push(trade);
+            }
 
-        if (txHash !== lastProcessedTxHash) {
-            lastProcessedTxHash = txHash;
-            console.log(`[Monitor] Detektovan novi trejd od mete!`, latestTrade);
-            return latestTrade; // Vraćamo podatke o novom trejdu
-        }
+            cursor = result.nextCursor;
+            firstPage = false;
 
-        return null;
-    } catch (error) {
-        console.error(
-            '[Monitor Greška] Neuspjelo dohvatanje podataka:',
-            error instanceof Error ? error.message : String(error)
+        } while (cursor && !reachedKnownTrade);
+
+        // Najstariji novi trade prvo
+        newTrades.sort(
+            (a, b) => Number(a.timestamp) - Number(b.timestamp)
         );
-        return null;
+
+        if (newTrades.length > 0) {
+            console.log(
+                `[Monitor] Detektovano ${newTrades.length} novih tradeova!`
+            );
+        }
+
+        return newTrades;
+
+    } catch (error: unknown) {
+        const err = error as any;
+        console.error(
+            '[Monitor Greška]',
+            err.response?.data || err.message || String(error)
+        );
+
+        throw error;
     }
 }
