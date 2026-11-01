@@ -12,7 +12,6 @@ const DATA_API_URL = 'https://data-api.polymarket.com';
 const PRIVATE_KEY = process.env.PRIVATE_KEY as `0x${string}` || '';
 const CHAIN_ID = Number(process.env.CHAIN_ID || 137);
 
-// Za Google/Social login, funderAddress je tvoj Polymarket Proxy nalog
 const FUNDER_ADDRESS = process.env.POLY_FUNDER_ADDRESS?.trim() || '';
 const SIGNATURE_TYPE = 1;
 
@@ -23,7 +22,6 @@ const signer = createWalletClient({
     transport: http('https://polygon-rpc.com'),
 });
 
-// Keširamo CLOB klijent
 let cachedClobClient: ClobClient | null = null;
 
 async function getClobClient(): Promise<ClobClient> {
@@ -32,10 +30,10 @@ async function getClobClient(): Promise<ClobClient> {
     }
 
     if (!FUNDER_ADDRESS) {
-        throw new Error('POLY_FUNDER_ADDRESS nije definisan u .env fajlu! Obavezno upiši svoju Polymarket proxy adresu.');
+        throw new Error('POLY_FUNDER_ADDRESS nije definisan u .env fajlu!');
     }
 
-    console.log('[Trader] Generisanje/preuzimanje Polymarket API ključeva za Proxy wallet...');
+    console.log('[Trader] Inicijalizacija Polymarket CLOB klijenta za Proxy...');
     const creds = await new ClobClient(
         CLOB_API_URL,
         CHAIN_ID,
@@ -58,11 +56,30 @@ async function getClobClient(): Promise<ClobClient> {
         true
     );
 
-    console.log('[Trader] CLOB klijent za Proxy uspešno inicijalizovan.');
+    console.log('[Trader] CLOB klijent uspešno inicijalizovan.');
     return cachedClobClient;
 }
 
-// Provera balansa preko tačnog V2 endpoint formata
+// Pomoćna funkcija za dinamičko preuzimanje parametara marketa (tickSize i negRisk)
+async function getMarketParams(clobClient: ClobClient, tokenId: string) {
+    try {
+        // Možemo upotrebiti clobClient za preuzimanje tick size-a direktno sa CLOB-a
+        const tickSize = await clobClient.getTickSize(tokenId);
+        const negRisk = await clobClient.getNegRisk(tokenId);
+
+        return {
+            tickSize: tickSize || "0.01",
+            negRisk: Boolean(negRisk)
+        };
+    } catch (error) {
+        console.warn(`[Trader Upozorenje] Neuspelo dinamičko preuzimanje market parametara za token ${tokenId}. Koristim fallback (0.01 / false).`, error);
+        return {
+            tickSize: "0.01",
+            negRisk: false
+        };
+    }
+}
+
 async function getUserTokenBalance(assetId: string): Promise<number> {
     try {
         const response = await axios.get(`${DATA_API_URL}/v2/positions`, {
@@ -78,8 +95,8 @@ async function getUserTokenBalance(assetId: string): Promise<number> {
         }
         return 0;
     } catch (error) {
-        console.error('[Trader Greška] Neuspelo čitanje V2 pozicija sa Data API-ja:', error);
-        throw error; // Bolje da baci grešku nego da tretira balans kao 0 ako API pukne
+        console.error('[Trader Greška] Neuspelo čitanje V2 pozicija:', error);
+        throw error;
     }
 }
 
@@ -97,17 +114,16 @@ export async function executeCopyTrade(tradeData: any) {
             size = amountUsdc / price;
             console.log(`[Trader] BUY nalog -> Kupujemo za ${amountUsdc} USDC. Cena: ${price}, Količina: ${size}`);
         } else {
-            console.log(`[Trader] SELL nalog detektovan. Proveravam naše stanje za token ${tradeData.asset}...`);
+            console.log(`[Trader] SELL nalog detektovan. Proveravam balans za token ${tradeData.asset}...`);
             const myBalance = await getUserTokenBalance(tradeData.asset);
 
             if (myBalance <= 0) {
-                console.log(`[Trader] Preskačem SELL: Nemamo ovaj token u našem novčaniku (balans je 0).`);
+                console.log(`[Trader] Preskačem SELL: Nemamo ovaj token u novčaniku (balans je 0).`);
                 return;
             }
 
-            // Potpuno zatvaranje pozicije (Mirror Exit)
             size = myBalance;
-            console.log(`[Trader] SELL nalog -> Pronađen balans: ${myBalance} tokena. Prodajemo sve u potpunosti!`);
+            console.log(`[Trader] SELL nalog -> Pronađen balans: ${myBalance} tokena. Zatvaramo poziciju!`);
         }
 
         if (size <= 0 || isNaN(size)) {
@@ -115,7 +131,11 @@ export async function executeCopyTrade(tradeData: any) {
             return;
         }
 
-        console.log(`[Trader] Šaljem nalog na Polymarket... Token: ${tradeData.asset}, Cena: ${price}, Količina: ${size}, Strana: ${isBuy ? 'BUY' : 'SELL'}`);
+        // Dinamičko povlačenje tickSize i negRisk umesto hardkodiranja
+        const marketParams = await getMarketParams(clobClient, tradeData.asset);
+        console.log(`[Trader] Parametri marketa preuzeti: tickSize=${marketParams.tickSize}, negRisk=${marketParams.negRisk}`);
+
+        console.log(`[Trader] Šaljem nalog na Polymarket... Token: ${tradeData.asset}, Cena: ${price}, Količina: ${size}`);
 
         const order = await clobClient.createAndPostOrder(
             {
@@ -125,12 +145,12 @@ export async function executeCopyTrade(tradeData: any) {
                 side: isBuy ? Side.BUY : Side.SELL,
             },
             {
-                tickSize: "0.01",
-                negRisk: false,
+                tickSize: marketParams.tickSize,
+                negRisk: marketParams.negRisk,
             }
         );
 
-        console.log(`[Trader] Uspešno izvršen live trejd! Odgovor servera:`, order);
+        console.log(`[Trader] Uspešno poslat live nalog! Odgovor servera:`, order);
 
     } catch (error: any) {
         const errorMsg = error?.response?.data || error?.message || String(error);
