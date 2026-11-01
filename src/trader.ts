@@ -1,6 +1,3 @@
-import 'global-agent/bootstrap.js';
-process.env.GLOBAL_AGENT_HTTP_PROXY = process.env.PROXY_URL || 'http://161.97.104.144:80';
-
 import { createWalletClient, http } from 'viem';
 import { polygon } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -53,7 +50,7 @@ export async function executeCopyTrade(tradeData: any) {
         const price = Number(tradeData.price);
         const size = amountUsdc / price;
 
-        console.log(`[Trader] Šaljem pravi nalog na Polymarket preko globalnog proxy-ja... Token: ${tradeData.asset}, Cena: ${price}, Količina: ${size}, Strana: ${tradeData.side}`);
+        console.log(`[Trader] Šaljem pravi nalog direktno na Polymarket... Token: ${tradeData.asset}, Cena: ${price}, Količina: ${size}, Strana: ${tradeData.side}`);
 
         const order = await clobClient.createAndPostOrder(
             {
