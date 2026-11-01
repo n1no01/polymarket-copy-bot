@@ -145,7 +145,7 @@ export async function executeCopyTrade(tradeData: any) {
                 side: isBuy ? Side.BUY : Side.SELL,
             },
             {
-                tickSize: marketParams.tickSize,
+                tickSize: marketParams.tickSize as any,
                 negRisk: marketParams.negRisk,
             }
         );
